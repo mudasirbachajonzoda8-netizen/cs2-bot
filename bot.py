@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import urllib.parse
-import requests
+import aiohttp
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
@@ -11,30 +11,32 @@ TOKEN = "8989233616:AAG_vtA6d72txtqEuFdzW7S7y66ylTtVXoQ"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-def get_cs2_skin_price(skin_name: str) -> dict | None:
-    # Кодируем название предмета для ссылки
+async def get_cs2_skin_price(skin_name: str) -> dict | None:
+    # Используем асинхронный запрос через aiohttp и публичное API цен
     encoded_name = urllib.parse.quote(skin_name)
-    
-    # currency=5 — цена в рублях (1 — в долларах)
     url = f"https://steamcommunity.com/market/priceoverview/?appid=730&currency=5&market_hash_name={encoded_name}"
     
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
     }
     
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        data = response.json()
-        
-        if data.get("success"):
-            return {
-                "lowest_price": data.get("lowest_price", "Нет данных"),
-                "median_price": data.get("median_price", "Нет данных"),
-                "volume": data.get("volume", "0")
-            }
-    except Exception as e:
-        print(f"Ошибка при запросе к Steam: {e}")
-        
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(url, headers=headers, timeout=10) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data.get("success"):
+                        return {
+                            "lowest_price": data.get("lowest_price", "Нет данных"),
+                            "median_price": data.get("median_price", "Нет данных"),
+                            "volume": data.get("volume", "0")
+                        }
+                else:
+                    print(f"Ошибка Steam API: статус {response.status}")
+        except Exception as e:
+            print(f"Ошибка при запросе: {e}")
+            
     return None
 
 @dp.message(CommandStart())
@@ -52,7 +54,7 @@ async def check_skin_handler(message: types.Message):
     skin_name = message.text.strip()
     await message.answer(f"🔍 Ищу цену для `{skin_name}`...", parse_mode="Markdown")
     
-    price_info = get_cs2_skin_price(skin_name)
+    price_info = await get_cs2_skin_price(skin_name)
     
     if price_info:
         response_text = (
